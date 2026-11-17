@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: 2026 Lael D. Barlow
+# SPDX-License-Identifier: MIT
+
+# One Apptainer image per pixi environment, built by
+# workflow/template/update-containers.py before the first step of a run. This one
+# file serves every environment: for each <name> in a rule's
+# `container: image("<name>")`, the script runs
+#
+#     apptainer build --build-arg ENV=<name> \
+#         results/containers/<name>-<fingerprint>.sif \
+#         workflow/template/container.def
+#
+# The fingerprint is a checksum of this file and of that one environment's
+# packages as pixi.lock pins them (and, for doc, of typst-imports.typ). A change
+# to one environment gives its image a new name, and Snakemake reruns the steps
+# that use it.
+#
+# A new environment needs no new file. An image that needs more than its pixi
+# environment gives it, a system package for example, has its own recipe:
+# workflow/containers/<name>.def, if it exists, builds the image <name> in
+# place of this file. Copying this file there is the place to start.
+#
+# The base image is pinned by digest, not by tag: a tag can be re-pushed and
+# change the operating system underneath the install with nothing to detect
+# it. This digest is ghcr.io/prefix-dev/pixi:0.81.0-noble: pixi 0.81.0 on
+# Ubuntu 24.04. The image's pixi installs pixi.lock as it is (frozen), without
+# solving again, so a lock written by a newer pixi on the host builds here as
+# long as its format is one this pixi reads; update-containers.py stops with a
+# message when it is not. To move the base image, resolve the new tag with
+# `docker buildx imagetools inspect` and replace the digest below and the
+# version in this comment. The version is also written in requires-pixi in
+# pixi.toml and Good to know in README.md, which
+# .github/checks/template-tests.py compares with this comment, and LOCK_FORMAT
+# in update-containers.py may change with it. .github/checks/containers.sh checks that the image holds this version.
+Bootstrap: docker
+From: ghcr.io/prefix-dev/pixi@sha256:788ae451641666e2d1f79d3dbe35392dfc7e9b394b16a3acb75c347f3badb2ab
+
+# pixi.toml and pixi.lock are copied in before %post runs, so the image is built
+# from exactly the lock this project commits. typst-imports.typ is written by
+# the script before every build: the `#import "@preview/..."` lines of the
+# manuscript, which the doc image downloads once, below.
+%files
+    pixi.toml /pixi.toml
+    pixi.lock /pixi.lock
+    results/containers/typst-imports.typ /typst-imports.typ
+
+# /bin/sh in the base image is dash: `set -eu`, and nothing bash-only.
+#
+# The wrapper is what makes a rule's `pixi run -e <name>` mean this image's
+# environment. pixi finds its manifest by searching upward from the working
+# directory before it consults anything else, and Snakemake runs every job from
+# the project folder, which Apptainer binds in from the host together with the
+# project's own .pixi/. So `pixi` on this image's PATH is a short script that
+# hands the real pixi `--manifest-path /pixi.toml`, the copy inside the image,
+# and /.pixi/envs/<name> is what activates. It also stops a step whose
+# `pixi run -e` names another environment than its image, with a message
+# that says so; it reads only the options before the command, so a tool's own
+# -e is never mistaken for pixi's.
+%post
+    set -eu
+    cd /
+    export PIXI_CACHE_DIR=/tmp/pixi-cache
+    export PIXI_FROZEN=true
+    pixi install --environment {{ ENV }}
+    rm -rf /tmp/pixi-cache
+
+    mkdir -p /opt/bin
+    cat > /opt/bin/pixi <<'WRAPPER'
+#!/bin/sh
+case "${1:-}" in
+    run)
+        shift
+        asked=
+        take=
+        for arg in "$@"; do
+            if [ -n "$take" ]; then
+                asked=$arg
+                break
+            fi
+            case $arg in
+                -e|--environment) take=1 ;;
+                --environment=*) asked=${arg#--environment=}; break ;;
+                -*) ;;
+                *) break ;;
+            esac
+        done
+        if [ -n "$asked" ] && [ "$asked" != "{{ ENV }}" ]; then
+            echo "pixi run -e $asked, inside the {{ ENV }} image: a rule's" \
+                "container: line and its pixi run -e must name the same" \
+                "environment." >&2
+            exit 1
+        fi
+        exec /usr/local/bin/pixi run --manifest-path /pixi.toml "$@" ;;
+    shell-hook|list|info|tree)
+        cmd=$1; shift
+        exec /usr/local/bin/pixi "$cmd" --manifest-path /pixi.toml "$@" ;;
+    *)  exec /usr/local/bin/pixi "$@" ;;
+esac
+WRAPPER
+    chmod +x /opt/bin/pixi
+
+    if [ "{{ ENV }}" = doc ]; then
+        export TYPST_PACKAGE_CACHE_PATH=/opt/typst/packages
+        pixi run --environment doc \
+            typst compile /typst-imports.typ /tmp/typst-imports.pdf
+        rm -f /tmp/typst-imports.pdf
+    fi
+
+# Only exports here: Apptainer evaluates this section itself and cannot run a
+# command from it. PIXI_FROZEN makes every pixi run use the lock inside the
+# image as it is, never solve it again. Caches go to /tmp, because the image is
+# read-only. Typst's
+# package cache is the one exception: it was filled at build time, so a compile
+# on a machine with no network finds every package it imports. Temporary files
+# go to /tmp too: Apptainer passes in the host's TMPDIR, which can name a
+# folder the image lacks, such as /data/tmp, and pixi then fails to activate.
+%environment
+    export PATH=/opt/bin:/usr/local/bin:$PATH
+    export PIXI_FROZEN=true
+    export PIXI_CACHE_DIR=/tmp/pixi-cache
+    export XDG_CACHE_HOME=/tmp/xdg-cache
+    export TMPDIR=/tmp
+    export TYPST_PACKAGE_CACHE_PATH=/opt/typst/packages
+
+# Runs at the end of the build, from the folder the build was started in, and
+# fails the build unless the environment that activates is the image's own.
+%test
+    set -eu
+    pixi run --environment {{ ENV }} sh -c 'echo "$CONDA_PREFIX"' \
+        | grep -q '^/.pixi/envs/{{ ENV }}$'

@@ -1,0 +1,85 @@
+# The software this project uses, one environment per tool, and the commands
+# that build the document.
+#
+# Each rule in workflow/Snakefile names its environment with `pixi run -e
+# <name>`, so a rule shows exactly what software runs it. Nothing is inherited:
+# a rule that names no environment cannot reach the software in one.
+#
+# Every `pixi run` in a rule or a task names its environment with -e. A bare
+# `pixi run <task>` called from inside another environment inherits the
+# calling environment and fails with "no such task".
+
+[workspace]
+# Rename this to your project's name.
+name = "bioinformatics-project-template"
+channels = ["conda-forge", "bioconda"]
+# linux-64   Linux servers, and Windows under WSL; the only platform of images
+# osx-arm64  Apple-silicon Macs
+# osx-64     Intel Macs
+#
+# win-64 is absent because bioconda publishes no Windows packages: listing it
+# would stop the project solving the moment it gains a bioinformatics tool.
+platforms = ["linux-64", "osx-arm64", "osx-64"]
+# The pixi release inside the images (workflow/template/container.def).
+requires-pixi = ">=0.81"
+
+# The default environment runs Snakemake and nothing else. It decides what to
+# run; the software that does the running lives in the environments below.
+[dependencies]
+python = ">=3.12,<3.14"
+snakemake = ">=9.6,<10"
+
+# One environment per tool, named from the rules that use it. Each environment
+# a rule names in `container: image("<name>")` also becomes an Apptainer image.
+# Environments are cheap: pixi hard-links the packages they share.
+[feature.python.dependencies]
+python = ">=3.12,<3.14"
+# Lets an editor's console run this environment's Python.
+ipykernel = ">=6.29,<8"
+
+[feature.rstats.dependencies]
+r-base = ">=4.5,<5"
+r-ggplot2 = ">=3.5,<4"
+r-argparser = ">=0.7,<1"
+r-ragg = ">=1.3,<2"
+# Lets an editor's console (Zed's REPL, JupyterLab) run this environment's R.
+# Zed over SSH starts a kernel as `python -m ipykernel_launcher`, so python is
+# here too, and the kernel task gives it an ipykernel_launcher.py that hands
+# the kernel to xeus-r.
+xeus-r = ">=0.11,<1"
+python = ">=3.12,<3.14"
+
+[feature.rstats.tasks]
+# Registers the environment as a Jupyter kernel named after the project folder,
+# and readies it for Zed over SSH. Run it again if the folder moves, or after
+# the environment is reinstalled.
+kernel = "sh workflow/template/register-kernel.sh"
+
+# Add an environment for each tool, and a line for it in [environments].
+# [feature.csvtk.dependencies]
+# csvtk = ">=0.31,<1"
+
+# The checks .github/checks/lint.sh runs, at the versions pixi.lock pins.
+[feature.lint.dependencies]
+ruff = ">=0.17,<0.18"
+pyright = ">=1.1.400,<2"
+shellcheck = ">=0.10,<1"
+
+# Typst and nothing else, so the document builds when an analysis environment
+# does not.
+[feature.doc.dependencies]
+typst = ">=0.15,<0.16"
+
+[feature.doc.tasks]
+# --root . lets the document read results/ and workflow/: typst reads nothing
+# outside its root, and the default root is the document's own folder.
+# --ignore-system-fonts uses only the fonts inside typst, so the PDF is the
+# same on every machine.
+render = "typst compile --root . --ignore-system-fonts manuscript/document.typ results/manuscript/document.pdf"
+watch = "typst watch --root . --ignore-system-fonts manuscript/document.typ results/manuscript/document.pdf"
+
+[environments]
+python = { features = ["python"], no-default-feature = true }
+rstats = { features = ["rstats"], no-default-feature = true }
+doc = { features = ["doc"], no-default-feature = true }
+lint = { features = ["lint"], no-default-feature = true }

@@ -1,0 +1,23 @@
+include: "template/rules.smk"
+
+
+rule all:
+    default_target: True
+    input:
+        "results/provenance/run-info.tsv",
+        "results/tables/values.tsv",
+        "results/manuscript/document.pdf",
+
+
+rule record_values:
+    input:
+        script="workflow/scripts/record-values.sh",
+        tables=[],
+    output:
+        "results/tables/values.tsv",
+    shell:
+        """
+        sh {input.script} \
+            --output {output} \
+            {input.tables}
+        """

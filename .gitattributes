@@ -1,0 +1,16 @@
+# SCM syntax highlighting
+pixi.lock linguist-language=YAML linguist-generated=true
+
+# Line endings. A checkout on Windows can otherwise put CRLF into a shell script,
+# which then fails on Linux with `\r: command not found`, an error that names
+# neither the file nor the cause.
+* text=auto eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.R   text eol=lf
+*.typ text eol=lf
+*.bib text eol=lf
+*.def text eol=lf
+*.sif binary
+*.pdf binary
+*.png binary

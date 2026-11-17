@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Lael D. Barlow
+# SPDX-License-Identifier: MIT
+
+# How `pixi run snakemake` runs unless told otherwise. An option on the
+# command line overrides a line here, `--cores 4` for example, and
+# `--workflow-profile none` skips the whole file.
+
+# Steps run at once.
+cores: 2
+
+# Every rule with a container: line runs inside that Apptainer image.
+software-deployment-method: apptainer
+
+# Keeps the host's environment variables, pixi's among them, out of every
+# image. The spaces are needed: a value that starts with -- is read by
+# Snakemake as an option of its own.
+apptainer-args: " --cleanenv "

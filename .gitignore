@@ -1,0 +1,17 @@
+# pixi's installed environments. Rebuilt from pixi.lock, never committed.
+.pixi/
+
+# Everything a run writes, the PDF included. `rm -rf results` starts again
+# from nothing, so a file put here by hand is lost; it belongs in resources/.
+/results/
+
+# Snakemake's record of what it ran
+.snakemake/
+
+# R's default plot device, if a project uses R
+Rplots.pdf
+
+__pycache__/
+*.pyc
+*.egg-info
+.DS_Store
